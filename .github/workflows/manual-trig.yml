@@ -1,0 +1,46 @@
+name: Manual Run with Parameters
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+
+      branch:
+        description: "Branch to deploy"
+        required: true
+        default: "main"
+        type: string
+
+      force:
+        description: "Force execution"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  run-job:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Show inputs
+        run: |
+          echo "Environment: ${{ github.event.inputs.environment }}"
+          echo "Branch: ${{ github.event.inputs.branch }}"
+          echo "Force: ${{ github.event.inputs.force }}"
+
+      - name: Example logic
+        run: |
+          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+            echo "Running in force mode"
+          else
+            echo "Normal execution"
+          fi
+``
