@@ -17,13 +17,11 @@ on:
         description: "Branch to deploy"
         required: true
         default: "main"
-        type: string
 
       force:
         description: "Force execution"
         required: false
-        default: false
-        type: boolean
+        default: "false"
 
 jobs:
   run-job:
@@ -43,4 +41,3 @@ jobs:
           else
             echo "Normal execution"
           fi
-``
