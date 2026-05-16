@@ -1,10 +1,13 @@
+# Workflow name displayed in the GitHub Actions UI
 name: Manual Run with Parameters
 
+# Trigger: only runs when manually dispatched via the Actions tab
 on:
   workflow_dispatch:
+    # Define the inputs shown in the manual trigger form
     inputs:
       repository:
-        description: "Repository name"
+        description: "Repository name"  # Format: owner/repo (e.g., octocat/hello-world)
         required: true
         type: string
 
@@ -20,9 +23,44 @@ on:
 
 jobs:
   run-job:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest  # Use GitHub-hosted Ubuntu runner
 
     steps:
+      # Step 1: Validate that the specified issue exists in the target repository
+      - name: Verify issue exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Auth token for GitHub API access
+        run: |
+          # Call the GitHub REST API and extract the HTTP status code
+          HTTP_STATUS=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            "repos/${{ github.event.inputs.repository }}/issues/${{ github.event.inputs.issue }}" \
+            --silent --include 2>&1 | head -1 | awk '{print $2}')
+          # Fail the workflow if the issue doesn't exist (non-200 response)
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "::error::Issue #${{ github.event.inputs.issue }} does not exist in ${{ github.event.inputs.repository }}"
+            exit 1
+          fi
+          echo "Issue #${{ github.event.inputs.issue }} exists."
+
+      # Step 2: Validate that the specified pull request exists in the target repository
+      - name: Verify pull request exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Auth token for GitHub API access
+        run: |
+          # Call the GitHub REST API for pull requests and extract the HTTP status code
+          HTTP_STATUS=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            "repos/${{ github.event.inputs.repository }}/pulls/${{ github.event.inputs.pull_request }}" \
+            --silent --include 2>&1 | head -1 | awk '{print $2}')
+          # Fail the workflow if the PR doesn't exist (non-200 response)
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "::error::Pull request #${{ github.event.inputs.pull_request }} does not exist in ${{ github.event.inputs.repository }}"
+            exit 1
+          fi
+          echo "Pull request #${{ github.event.inputs.pull_request }} exists."
+
+      # Step 3: Display the validated inputs for logging purposes
       - name: Show inputs
         run: |
           echo "Repository: ${{ github.event.inputs.repository }}"
