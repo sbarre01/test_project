@@ -1,5 +1,5 @@
 # Workflow name displayed in the GitHub Actions UI
-name: Manual Run with Parameters
+name: CMF Manual CI Trigger
 
 # Trigger: only runs when manually dispatched via the Actions tab
 on:
