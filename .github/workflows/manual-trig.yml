@@ -7,7 +7,7 @@ on:
     # Define the inputs shown in the manual trigger form
     inputs:
       repository:
-        description: "Repository name"  # Format: owner/repo (e.g., octocat/hello-world)
+        description: "Repository (owner/repo format, e.g. rdkcentral/utopia)"
         required: true
         type: string
 
@@ -26,6 +26,16 @@ jobs:
     runs-on: ubuntu-latest  # Use GitHub-hosted Ubuntu runner
 
     steps:
+      # Step 0: Validate repository input is in owner/repo format
+      - name: Validate repository format
+        run: |
+          REPO="${{ github.event.inputs.repository }}"
+          if [[ ! "$REPO" =~ ^[^/]+/[^/]+$ ]]; then
+            echo "::error::Repository must be in owner/repo format (e.g. rdkcentral/utopia). Got: $REPO"
+            exit 1
+          fi
+          echo "Repository format is valid: $REPO"
+
       # Step 1: Validate that the specified issue exists in the target repository
       - name: Verify issue exists
         env:
