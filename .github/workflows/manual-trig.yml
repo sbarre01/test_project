@@ -6,73 +6,206 @@ on:
   workflow_dispatch:
     # Define the inputs shown in the manual trigger form
     inputs:
-      repository:
-        description: "Repository (owner/repo format, e.g. rdkcentral/utopia)"
-        required: true
+      GERRIT_TOPIC:
+        description: "Changesets of the Gerrit topic to be downloaded from Gerrit (no spaces allowed)"
+        required: false
         type: string
 
-      issue:
-        description: "GitHub issue number"
-        required: true
+      GERRIT_CHANGE_NUMBERS:
+        description: "List of Gerrit Change numbers, separated by commas or spaces, to be downloaded for layer builds"
+        required: false
         type: string
 
-      pull_request:
-        description: "Pull request number"
-        required: true
+      GITHUB_PR_LIST:
+        description: "List of GitHub PRs in owner/repo/pulls/number format (e.g. rdkcentral/meta-rdk-oss-reference/pulls/181)"
+        required: false
         type: string
+
+      GITHUB_ISSUE:
+        description: "GitHub issue with associated PRs in owner/repo/issues/number format (e.g. rdkcentral/sample-gitflow/issues/47)"
+        required: false
+        type: string
+
+      GITHUB_META_LAYER:
+        description: "Specific meta layer to fetch in owner/repo format (must not be in GITHUB_PR_LIST, only one allowed)"
+        required: false
+        type: string
+
+      GITHUB_META_LAYER_BRANCH:
+        description: "Branch of the meta layer specified in GITHUB_META_LAYER (required when GITHUB_META_LAYER is set)"
+        required: false
+        type: string
+
+      CLEAR_WORKSPACE_BEFORE_BUILD:
+        description: "Clear workspace before build"
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   run-job:
     runs-on: ubuntu-latest  # Use GitHub-hosted Ubuntu runner
 
     steps:
-      # Step 0: Validate repository input is in owner/repo format
-      - name: Validate repository format
+      - name: Validate at least one input is provided
+        env:
+          INPUT_GERRIT_TOPIC: ${{ github.event.inputs.GERRIT_TOPIC }}
+          INPUT_GERRIT_CHANGE_NUMBERS: ${{ github.event.inputs.GERRIT_CHANGE_NUMBERS }}
+          INPUT_GITHUB_PR_LIST: ${{ github.event.inputs.GITHUB_PR_LIST }}
+          INPUT_GITHUB_ISSUE: ${{ github.event.inputs.GITHUB_ISSUE }}
+          INPUT_GITHUB_META_LAYER: ${{ github.event.inputs.GITHUB_META_LAYER }}
         run: |
-          REPO="${{ github.event.inputs.repository }}"
-          if [[ ! "$REPO" =~ ^[^/]+/[^/]+$ ]]; then
-            echo "::error::Repository must be in owner/repo format (e.g. rdkcentral/utopia). Got: $REPO"
+          if [[ -z "$INPUT_GERRIT_TOPIC" && -z "$INPUT_GERRIT_CHANGE_NUMBERS" && \
+                -z "$INPUT_GITHUB_PR_LIST" && -z "$INPUT_GITHUB_ISSUE" && \
+                -z "$INPUT_GITHUB_META_LAYER" ]]; then
+            echo "::error::At least one input must be provided"
             exit 1
           fi
-          echo "Repository format is valid: $REPO"
 
-      # Step 1: Validate that the specified issue exists in the target repository
-      - name: Verify issue exists
+      - name: Validate GERRIT_TOPIC has no spaces
+        if: ${{ github.event.inputs.GERRIT_TOPIC != '' }}
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Auth token for GitHub API access
+          INPUT_GERRIT_TOPIC: ${{ github.event.inputs.GERRIT_TOPIC }}
         run: |
-          # Call the GitHub REST API and extract the HTTP status code
+          if [[ "$INPUT_GERRIT_TOPIC" =~ [[:space:]] ]]; then
+            echo "::error::GERRIT_TOPIC must not contain spaces. Got: $INPUT_GERRIT_TOPIC"
+            exit 1
+          fi
+          echo "GERRIT_TOPIC is valid: $INPUT_GERRIT_TOPIC"
+
+      - name: Validate GITHUB_ISSUE exists
+        if: ${{ github.event.inputs.GITHUB_ISSUE != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_GITHUB_ISSUE: ${{ github.event.inputs.GITHUB_ISSUE }}
+        run: |
+          # Expected format: owner/repo/issues/number
+          REPO=$(echo "$INPUT_GITHUB_ISSUE" | sed 's|/issues/[0-9]*$||')
+          NUMBER=$(echo "$INPUT_GITHUB_ISSUE" | grep -oE '[0-9]+$')
+          if [[ -z "$REPO" || -z "$NUMBER" || ! "$REPO" =~ ^[^/]+/[^/]+$ ]]; then
+            echo "::error::GITHUB_ISSUE must be in owner/repo/issues/number format (e.g. rdkcentral/sample-gitflow/issues/47). Got: $INPUT_GITHUB_ISSUE"
+            exit 1
+          fi
           HTTP_STATUS=$(gh api \
             -H "Accept: application/vnd.github+json" \
-            "repos/${{ github.event.inputs.repository }}/issues/${{ github.event.inputs.issue }}" \
+            "repos/$REPO/issues/$NUMBER" \
             --silent --include 2>&1 | head -1 | awk '{print $2}')
-          # Fail the workflow if the issue doesn't exist (non-200 response)
           if [ "$HTTP_STATUS" != "200" ]; then
-            echo "::error::Issue #${{ github.event.inputs.issue }} does not exist in ${{ github.event.inputs.repository }}"
+            echo "::error::Issue $INPUT_GITHUB_ISSUE does not exist (HTTP $HTTP_STATUS)"
             exit 1
           fi
-          echo "Issue #${{ github.event.inputs.issue }} exists."
+          echo "Issue $INPUT_GITHUB_ISSUE exists."
 
-      # Step 2: Validate that the specified pull request exists in the target repository
-      - name: Verify pull request exists
+      - name: Validate GITHUB_PR_LIST entries exist
+        if: ${{ github.event.inputs.GITHUB_PR_LIST != '' }}
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Auth token for GitHub API access
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_GITHUB_PR_LIST: ${{ github.event.inputs.GITHUB_PR_LIST }}
         run: |
-          # Call the GitHub REST API for pull requests and extract the HTTP status code
+          # Replace commas with spaces and iterate
+          for PR in $(echo "$INPUT_GITHUB_PR_LIST" | tr ',' ' '); do
+            REPO=$(echo "$PR" | sed 's|/pulls/[0-9]*$||')
+            NUMBER=$(echo "$PR" | grep -oE '[0-9]+$')
+            if [[ -z "$REPO" || -z "$NUMBER" || ! "$REPO" =~ ^[^/]+/[^/]+$ ]]; then
+              echo "::error::Each PR must be in owner/repo/pulls/number format. Got: $PR"
+              exit 1
+            fi
+            HTTP_STATUS=$(gh api \
+              -H "Accept: application/vnd.github+json" \
+              "repos/$REPO/pulls/$NUMBER" \
+              --silent --include 2>&1 | head -1 | awk '{print $2}')
+            if [ "$HTTP_STATUS" != "200" ]; then
+              echo "::error::Pull request $PR does not exist (HTTP $HTTP_STATUS)"
+              exit 1
+            fi
+            echo "Pull request $PR exists."
+          done
+
+      - name: Validate GITHUB_META_LAYER inputs
+        if: ${{ github.event.inputs.GITHUB_META_LAYER != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_GITHUB_META_LAYER: ${{ github.event.inputs.GITHUB_META_LAYER }}
+          INPUT_GITHUB_META_LAYER_BRANCH: ${{ github.event.inputs.GITHUB_META_LAYER_BRANCH }}
+        run: |
+          if [[ ! "$INPUT_GITHUB_META_LAYER" =~ ^[^/]+/[^/]+$ ]]; then
+            echo "::error::GITHUB_META_LAYER must be in owner/repo format. Got: $INPUT_GITHUB_META_LAYER"
+            exit 1
+          fi
+          if [[ -z "$INPUT_GITHUB_META_LAYER_BRANCH" ]]; then
+            echo "::error::GITHUB_META_LAYER_BRANCH is required when GITHUB_META_LAYER is set"
+            exit 1
+          fi
+          # Validate the repo exists
           HTTP_STATUS=$(gh api \
             -H "Accept: application/vnd.github+json" \
-            "repos/${{ github.event.inputs.repository }}/pulls/${{ github.event.inputs.pull_request }}" \
+            "repos/$INPUT_GITHUB_META_LAYER" \
             --silent --include 2>&1 | head -1 | awk '{print $2}')
-          # Fail the workflow if the PR doesn't exist (non-200 response)
           if [ "$HTTP_STATUS" != "200" ]; then
-            echo "::error::Pull request #${{ github.event.inputs.pull_request }} does not exist in ${{ github.event.inputs.repository }}"
+            echo "::error::Repository $INPUT_GITHUB_META_LAYER does not exist (HTTP $HTTP_STATUS)"
             exit 1
           fi
-          echo "Pull request #${{ github.event.inputs.pull_request }} exists."
+          echo "Repository $INPUT_GITHUB_META_LAYER exists."
+          # Validate the branch exists
+          ENCODED_BRANCH=$(printf '%s' "$INPUT_GITHUB_META_LAYER_BRANCH" | jq -sRr @uri)
+          HTTP_STATUS=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            "repos/$INPUT_GITHUB_META_LAYER/branches/$ENCODED_BRANCH" \
+            --silent --include 2>&1 | head -1 | awk '{print $2}')
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "::error::Branch $INPUT_GITHUB_META_LAYER_BRANCH does not exist in $INPUT_GITHUB_META_LAYER (HTTP $HTTP_STATUS)"
+            exit 1
+          fi
+          echo "Branch $INPUT_GITHUB_META_LAYER_BRANCH exists in $INPUT_GITHUB_META_LAYER."
 
-      # Step 3: Display the validated inputs for logging purposes
-      - name: Show inputs
+      - name: Trigger Jenkins build
+        # TODO: Uncomment once API_GATEWAY_URL and API_GATEWAY_KEY secrets are deployed
+        # env:
+        #   API_GATEWAY_URL: ${{ secrets.API_GATEWAY_URL }}
+        #   API_KEY: ${{ secrets.API_GATEWAY_KEY }}
+        #   INPUT_GERRIT_TOPIC: ${{ github.event.inputs.GERRIT_TOPIC }}
+        #   INPUT_GERRIT_CHANGE_NUMBERS: ${{ github.event.inputs.GERRIT_CHANGE_NUMBERS }}
+        #   INPUT_GITHUB_PR_LIST: ${{ github.event.inputs.GITHUB_PR_LIST }}
+        #   INPUT_GITHUB_ISSUE: ${{ github.event.inputs.GITHUB_ISSUE }}
+        #   INPUT_GITHUB_META_LAYER: ${{ github.event.inputs.GITHUB_META_LAYER }}
+        #   INPUT_GITHUB_META_LAYER_BRANCH: ${{ github.event.inputs.GITHUB_META_LAYER_BRANCH }}
+        #   INPUT_CLEAR_WORKSPACE: ${{ github.event.inputs.CLEAR_WORKSPACE_BEFORE_BUILD }}
+        # run: |
+        #   PAYLOAD=$(jq -n \
+        #     --arg gerrit_topic "$INPUT_GERRIT_TOPIC" \
+        #     --arg gerrit_changes "$INPUT_GERRIT_CHANGE_NUMBERS" \
+        #     --arg pr_list "$INPUT_GITHUB_PR_LIST" \
+        #     --arg issue "$INPUT_GITHUB_ISSUE" \
+        #     --arg meta_layer "$INPUT_GITHUB_META_LAYER" \
+        #     --arg meta_branch "$INPUT_GITHUB_META_LAYER_BRANCH" \
+        #     --arg clear_ws "$INPUT_CLEAR_WORKSPACE" \
+        #     '{
+        #       GERRIT_TOPIC: $gerrit_topic,
+        #       GERRIT_CHANGE_NUMBERS: $gerrit_changes,
+        #       GITHUB_PR_LIST: $pr_list,
+        #       GITHUB_ISSUE: $issue,
+        #       GITHUB_META_LAYER: $meta_layer,
+        #       GITHUB_META_LAYER_BRANCH: $meta_branch,
+        #       CLEAR_WORKSPACE_BEFORE_BUILD: $clear_ws
+        #     }')
+        #   HTTP_STATUS=$(curl -s -o /tmp/response.json -w "%{http_code}" \
+        #     -X POST "${API_GATEWAY_URL}/trigger-jenkins" \
+        #     -H "Content-Type: application/json" \
+        #     -H "x-api-key: ${API_KEY}" \
+        #     -d "$PAYLOAD")
+        #   echo "Response: $(cat /tmp/response.json)"
+        #   if [ "$HTTP_STATUS" -lt 200 ] || [ "$HTTP_STATUS" -ge 300 ]; then
+        #     echo "::error::API Gateway returned HTTP $HTTP_STATUS"
+        #     exit 1
+        #   fi
+        #   echo "Jenkins build triggered successfully."
         run: |
-          echo "Repository: ${{ github.event.inputs.repository }}"
-          echo "Issue: ${{ github.event.inputs.issue }}"
-          echo "Pull Request: ${{ github.event.inputs.pull_request }}"
+          echo "::warning::Jenkins trigger is stubbed out. Deploy API_GATEWAY_URL and API_GATEWAY_KEY secrets to enable."
+          echo "Inputs that would be sent:"
+          echo "  GERRIT_TOPIC=${{ github.event.inputs.GERRIT_TOPIC }}"
+          echo "  GERRIT_CHANGE_NUMBERS=${{ github.event.inputs.GERRIT_CHANGE_NUMBERS }}"
+          echo "  GITHUB_PR_LIST=${{ github.event.inputs.GITHUB_PR_LIST }}"
+          echo "  GITHUB_ISSUE=${{ github.event.inputs.GITHUB_ISSUE }}"
+          echo "  GITHUB_META_LAYER=${{ github.event.inputs.GITHUB_META_LAYER }}"
+          echo "  GITHUB_META_LAYER_BRANCH=${{ github.event.inputs.GITHUB_META_LAYER_BRANCH }}"
+          echo "  CLEAR_WORKSPACE_BEFORE_BUILD=${{ github.event.inputs.CLEAR_WORKSPACE_BEFORE_BUILD }}"
