@@ -7,40 +7,34 @@ on:
     # Define the inputs shown in the manual trigger form
     inputs:
       GERRIT_TOPIC:
-        description: "Changesets of the Gerrit topic to be downloaded from Gerrit (no spaces allowed)"
+        description: "[Gerrit] Changesets of the Gerrit topic to be downloaded (no spaces allowed)"
         required: false
         type: string
 
       GERRIT_CHANGE_NUMBERS:
-        description: "List of Gerrit Change numbers, separated by commas or spaces, to be downloaded for layer builds"
+        description: "[Gerrit] List of Change numbers, separated by commas or spaces, for layer builds"
         required: false
         type: string
 
       GITHUB_PR_LIST:
-        description: "List of GitHub PRs in owner/repo/pulls/number format (e.g. rdkcentral/meta-rdk-oss-reference/pulls/181)"
+        description: "[GitHub] List of PRs in owner/repo/pulls/number format (e.g. rdkcentral/meta-rdk-oss-reference/pulls/181)"
         required: false
         type: string
 
       GITHUB_ISSUE:
-        description: "GitHub issue with associated PRs in owner/repo/issues/number format (e.g. rdkcentral/sample-gitflow/issues/47)"
+        description: "[GitHub] Issue with associated PRs in owner/repo/issues/number format (e.g. rdkcentral/sample-gitflow/issues/47)"
         required: false
         type: string
 
       GITHUB_META_LAYER:
-        description: "Specific meta layer to fetch in owner/repo format (must not be in GITHUB_PR_LIST, only one allowed)"
+        description: "[GitHub] Meta layer to fetch in owner/repo format (must not be in GITHUB_PR_LIST, only one allowed)"
         required: false
         type: string
 
       GITHUB_META_LAYER_BRANCH:
-        description: "Branch of the meta layer specified in GITHUB_META_LAYER (required when GITHUB_META_LAYER is set)"
+        description: "[GitHub] Branch of the meta layer (required when GITHUB_META_LAYER is set)"
         required: false
         type: string
-
-      CLEAR_WORKSPACE_BEFORE_BUILD:
-        description: "Clear workspace before build"
-        required: false
-        type: boolean
-        default: false
 
 jobs:
   run-job:
@@ -169,7 +163,6 @@ jobs:
         #   INPUT_GITHUB_ISSUE: ${{ github.event.inputs.GITHUB_ISSUE }}
         #   INPUT_GITHUB_META_LAYER: ${{ github.event.inputs.GITHUB_META_LAYER }}
         #   INPUT_GITHUB_META_LAYER_BRANCH: ${{ github.event.inputs.GITHUB_META_LAYER_BRANCH }}
-        #   INPUT_CLEAR_WORKSPACE: ${{ github.event.inputs.CLEAR_WORKSPACE_BEFORE_BUILD }}
         # run: |
         #   PAYLOAD=$(jq -n \
         #     --arg gerrit_topic "$INPUT_GERRIT_TOPIC" \
@@ -178,15 +171,13 @@ jobs:
         #     --arg issue "$INPUT_GITHUB_ISSUE" \
         #     --arg meta_layer "$INPUT_GITHUB_META_LAYER" \
         #     --arg meta_branch "$INPUT_GITHUB_META_LAYER_BRANCH" \
-        #     --arg clear_ws "$INPUT_CLEAR_WORKSPACE" \
         #     '{
         #       GERRIT_TOPIC: $gerrit_topic,
         #       GERRIT_CHANGE_NUMBERS: $gerrit_changes,
         #       GITHUB_PR_LIST: $pr_list,
         #       GITHUB_ISSUE: $issue,
         #       GITHUB_META_LAYER: $meta_layer,
-        #       GITHUB_META_LAYER_BRANCH: $meta_branch,
-        #       CLEAR_WORKSPACE_BEFORE_BUILD: $clear_ws
+        #       GITHUB_META_LAYER_BRANCH: $meta_branch
         #     }')
         #   HTTP_STATUS=$(curl -s -o /tmp/response.json -w "%{http_code}" \
         #     -X POST "${API_GATEWAY_URL}/trigger-jenkins" \
@@ -208,4 +199,3 @@ jobs:
           echo "  GITHUB_ISSUE=${{ github.event.inputs.GITHUB_ISSUE }}"
           echo "  GITHUB_META_LAYER=${{ github.event.inputs.GITHUB_META_LAYER }}"
           echo "  GITHUB_META_LAYER_BRANCH=${{ github.event.inputs.GITHUB_META_LAYER_BRANCH }}"
-          echo "  CLEAR_WORKSPACE_BEFORE_BUILD=${{ github.event.inputs.CLEAR_WORKSPACE_BEFORE_BUILD }}"
