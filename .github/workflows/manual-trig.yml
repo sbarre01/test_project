@@ -96,7 +96,7 @@ jobs:
           # Replace commas with spaces and iterate
           # Accepts both owner/repo/pull/number and owner/repo/pulls/number formats
           for PR in $(echo "$INPUT_GITHUB_PR_LIST" | tr ',' ' '); do
-            REPO=$(echo "$PR" | sed 's|/pulls\?/[0-9]*$||')
+            REPO=$(echo "$PR" | sed -E 's|/pulls?/[0-9]+$||')
             NUMBER=$(echo "$PR" | grep -oE '[0-9]+$')
             if [[ -z "$REPO" || -z "$NUMBER" || ! "$REPO" =~ ^[^/]+/[^/]+$ ]]; then
               echo "::error::Each PR must be in owner/repo/pull(s)/number format. Got: $PR"
@@ -153,7 +153,7 @@ jobs:
       - name: Trigger Jenkins build
         env:
           HMAC_SECRET: ${{ secrets.HMAC_SECRET }}
-          API_GATEWAY_URL: ${{ secrets.API_GATEWAY_URL }}
+          API_GATEWAY_URL: ${{ vars.API_GATEWAY_URL }}
           INPUT_GERRIT_TOPIC: ${{ github.event.inputs.GERRIT_TOPIC }}
           INPUT_GERRIT_CHANGE_NUMBERS: ${{ github.event.inputs.GERRIT_CHANGE_NUMBERS }}
           INPUT_GITHUB_PR_LIST: ${{ github.event.inputs.GITHUB_PR_LIST }}
