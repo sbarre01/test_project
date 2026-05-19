@@ -1,10 +1,7 @@
-# Workflow name displayed in the GitHub Actions UI
 name: CMF Manual CI Trigger
 
-# Trigger: only runs when manually dispatched via the Actions tab
 on:
   workflow_dispatch:
-    # Define the inputs shown in the manual trigger form
     inputs:
       GERRIT_TOPIC:
         description: "[Gerrit] Changesets of the Gerrit topic to be downloaded (no spaces allowed)"
@@ -17,12 +14,12 @@ on:
         type: string
 
       GITHUB_PR_LIST:
-        description: "[GitHub] List of PRs in owner/repo/pulls/number format (e.g. rdkcentral/meta-rdk-oss-reference/pulls/181)"
+        description: "[GitHub] List of PRs in owner/repo/pull/number or owner/repo/pulls/number format"
         required: false
         type: string
 
       GITHUB_ISSUE:
-        description: "[GitHub] Issue with associated PRs in owner/repo/issues/number format (e.g. rdkcentral/sample-gitflow/issues/47)"
+        description: "[GitHub] Issue with associated PRs in owner/repo/issues/number format"
         required: false
         type: string
 
@@ -38,7 +35,7 @@ on:
 
 jobs:
   run-job:
-    runs-on: ubuntu-latest  # Use GitHub-hosted Ubuntu runner
+    runs-on: ubuntu-latest
 
     steps:
       - name: Validate at least one input is provided
@@ -97,11 +94,12 @@ jobs:
           INPUT_GITHUB_PR_LIST: ${{ github.event.inputs.GITHUB_PR_LIST }}
         run: |
           # Replace commas with spaces and iterate
+          # Accepts both owner/repo/pull/number and owner/repo/pulls/number formats
           for PR in $(echo "$INPUT_GITHUB_PR_LIST" | tr ',' ' '); do
-            REPO=$(echo "$PR" | sed 's|/pulls/[0-9]*$||')
+            REPO=$(echo "$PR" | sed 's|/pulls\?/[0-9]*$||')
             NUMBER=$(echo "$PR" | grep -oE '[0-9]+$')
             if [[ -z "$REPO" || -z "$NUMBER" || ! "$REPO" =~ ^[^/]+/[^/]+$ ]]; then
-              echo "::error::Each PR must be in owner/repo/pulls/number format. Got: $PR"
+              echo "::error::Each PR must be in owner/repo/pull(s)/number format. Got: $PR"
               exit 1
             fi
             HTTP_STATUS=$(gh api \
@@ -153,49 +151,40 @@ jobs:
           echo "Branch $INPUT_GITHUB_META_LAYER_BRANCH exists in $INPUT_GITHUB_META_LAYER."
 
       - name: Trigger Jenkins build
-        # TODO: Uncomment once API_GATEWAY_URL and API_GATEWAY_KEY secrets are deployed
-        # env:
-        #   API_GATEWAY_URL: ${{ secrets.API_GATEWAY_URL }}
-        #   API_KEY: ${{ secrets.API_GATEWAY_KEY }}
-        #   INPUT_GERRIT_TOPIC: ${{ github.event.inputs.GERRIT_TOPIC }}
-        #   INPUT_GERRIT_CHANGE_NUMBERS: ${{ github.event.inputs.GERRIT_CHANGE_NUMBERS }}
-        #   INPUT_GITHUB_PR_LIST: ${{ github.event.inputs.GITHUB_PR_LIST }}
-        #   INPUT_GITHUB_ISSUE: ${{ github.event.inputs.GITHUB_ISSUE }}
-        #   INPUT_GITHUB_META_LAYER: ${{ github.event.inputs.GITHUB_META_LAYER }}
-        #   INPUT_GITHUB_META_LAYER_BRANCH: ${{ github.event.inputs.GITHUB_META_LAYER_BRANCH }}
-        # run: |
-        #   PAYLOAD=$(jq -n \
-        #     --arg gerrit_topic "$INPUT_GERRIT_TOPIC" \
-        #     --arg gerrit_changes "$INPUT_GERRIT_CHANGE_NUMBERS" \
-        #     --arg pr_list "$INPUT_GITHUB_PR_LIST" \
-        #     --arg issue "$INPUT_GITHUB_ISSUE" \
-        #     --arg meta_layer "$INPUT_GITHUB_META_LAYER" \
-        #     --arg meta_branch "$INPUT_GITHUB_META_LAYER_BRANCH" \
-        #     '{
-        #       GERRIT_TOPIC: $gerrit_topic,
-        #       GERRIT_CHANGE_NUMBERS: $gerrit_changes,
-        #       GITHUB_PR_LIST: $pr_list,
-        #       GITHUB_ISSUE: $issue,
-        #       GITHUB_META_LAYER: $meta_layer,
-        #       GITHUB_META_LAYER_BRANCH: $meta_branch
-        #     }')
-        #   HTTP_STATUS=$(curl -s -o /tmp/response.json -w "%{http_code}" \
-        #     -X POST "${API_GATEWAY_URL}/trigger-jenkins" \
-        #     -H "Content-Type: application/json" \
-        #     -H "x-api-key: ${API_KEY}" \
-        #     -d "$PAYLOAD")
-        #   echo "Response: $(cat /tmp/response.json)"
-        #   if [ "$HTTP_STATUS" -lt 200 ] || [ "$HTTP_STATUS" -ge 300 ]; then
-        #     echo "::error::API Gateway returned HTTP $HTTP_STATUS"
-        #     exit 1
-        #   fi
-        #   echo "Jenkins build triggered successfully."
+        env:
+          HMAC_SECRET: ${{ secrets.HMAC_SECRET }}
+          API_GATEWAY_URL: ${{ secrets.API_GATEWAY_URL }}
+          INPUT_GERRIT_TOPIC: ${{ github.event.inputs.GERRIT_TOPIC }}
+          INPUT_GERRIT_CHANGE_NUMBERS: ${{ github.event.inputs.GERRIT_CHANGE_NUMBERS }}
+          INPUT_GITHUB_PR_LIST: ${{ github.event.inputs.GITHUB_PR_LIST }}
+          INPUT_GITHUB_ISSUE: ${{ github.event.inputs.GITHUB_ISSUE }}
+          INPUT_GITHUB_META_LAYER: ${{ github.event.inputs.GITHUB_META_LAYER }}
+          INPUT_GITHUB_META_LAYER_BRANCH: ${{ github.event.inputs.GITHUB_META_LAYER_BRANCH }}
         run: |
-          echo "::warning::Jenkins trigger is stubbed out. Deploy API_GATEWAY_URL and API_GATEWAY_KEY secrets to enable."
-          echo "Inputs that would be sent:"
-          echo "  GERRIT_TOPIC=${{ github.event.inputs.GERRIT_TOPIC }}"
-          echo "  GERRIT_CHANGE_NUMBERS=${{ github.event.inputs.GERRIT_CHANGE_NUMBERS }}"
-          echo "  GITHUB_PR_LIST=${{ github.event.inputs.GITHUB_PR_LIST }}"
-          echo "  GITHUB_ISSUE=${{ github.event.inputs.GITHUB_ISSUE }}"
-          echo "  GITHUB_META_LAYER=${{ github.event.inputs.GITHUB_META_LAYER }}"
-          echo "  GITHUB_META_LAYER_BRANCH=${{ github.event.inputs.GITHUB_META_LAYER_BRANCH }}"
+          PAYLOAD=$(jq -n \
+            --arg gerrit_topic "$INPUT_GERRIT_TOPIC" \
+            --arg gerrit_changes "$INPUT_GERRIT_CHANGE_NUMBERS" \
+            --arg pr_list "$INPUT_GITHUB_PR_LIST" \
+            --arg issue "$INPUT_GITHUB_ISSUE" \
+            --arg meta_layer "$INPUT_GITHUB_META_LAYER" \
+            --arg meta_branch "$INPUT_GITHUB_META_LAYER_BRANCH" \
+            '{
+              GERRIT_TOPIC: $gerrit_topic,
+              GERRIT_CHANGE_NUMBERS: $gerrit_changes,
+              GITHUB_PR_LIST: $pr_list,
+              GITHUB_ISSUE: $issue,
+              GITHUB_META_LAYER: $meta_layer,
+              GITHUB_META_LAYER_BRANCH: $meta_branch
+            }')
+          SIGNATURE=$(printf '%s' "$PAYLOAD" | openssl dgst -sha256 -hmac "$HMAC_SECRET" | awk '{print $NF}')
+          HTTP_STATUS=$(curl -s -o /tmp/response.json -w "%{http_code}" \
+            -X POST "$API_GATEWAY_URL" \
+            -H "Content-Type: application/json" \
+            -H "X-Signature-256: sha256=$SIGNATURE" \
+            -d "$PAYLOAD")
+          echo "Response: $(cat /tmp/response.json)"
+          if [ "$HTTP_STATUS" -lt 200 ] || [ "$HTTP_STATUS" -ge 300 ]; then
+            echo "::error::API Gateway returned HTTP $HTTP_STATUS"
+            exit 1
+          fi
+          echo "Jenkins build triggered successfully."
